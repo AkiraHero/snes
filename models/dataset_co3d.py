@@ -26,7 +26,9 @@ def to_global_path(path):
 
 def load_co3d(cfg):
     category = cfg.category
-    dataset_root = to_global_path(cfg.data_dir)
+    dataset_root = cfg.data_dir
+    if not cfg.data_dir.startswith('s3'):
+        dataset_root = to_global_path(cfg.data_dir)
     logging.info(f"Dataset root: {dataset_root}")
     logging.info(f"Category: {category}")
     logging.info(f"Instance: {cfg.instance}")

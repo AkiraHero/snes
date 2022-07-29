@@ -10,6 +10,7 @@ import functools
 import gzip
 import hashlib
 from itertools import islice
+import logging
 import os
 import random
 from typing import List, Optional, Union, Tuple
@@ -25,6 +26,30 @@ from pytorch3d.renderer.cameras import CamerasBase, PerspectiveCameras
 from pytorch3d.structures.pointclouds import Pointclouds
 
 from . import types
+
+
+
+def PetrelByteStreamProxy(file_name):
+    if file_name.startswith('s3'):
+        from petrel_helper import PetrelHelper
+        ph = PetrelHelper()
+        f = ph.open(file_name, 'rb')
+    else:
+        f = open(file_name, 'rb')
+    return f
+
+def PetrelBytesProxy(file_name):
+    f = PetrelByteStreamProxy(file_name)
+    return f.read()
+    
+def PetrelTextProxy(file_name):
+    if file_name.startswith('s3'):
+        from petrel_helper import PetrelHelper
+        ph = PetrelHelper()
+        f = ph.open(file_name, 'r')
+        return f
+    else:
+        return open(file_name, 'r')
 
 
 @dataclass
@@ -400,7 +425,7 @@ class Co3dDataset(torch.utils.data.Dataset):
                     frame_data.sequence_point_cloud_path,
                     max_points=self.max_points,
                 )
-                if os.path.isfile(frame_data.sequence_point_cloud_path)
+                if os.path.isfile(frame_data.sequence_point_cloud_path) or frame_data.sequence_point_cloud_path.startswith('s3')
                 else None
             )
 
@@ -529,7 +554,8 @@ class Co3dDataset(torch.utils.data.Dataset):
 
     def _load_frames(self):
         print(f"Loading Co3D frames from {self.frame_annotations_file}.")
-        with gzip.open(self.frame_annotations_file, "rt", encoding="utf8") as zipfile:
+        file_descriptor = PetrelByteStreamProxy(self.frame_annotations_file)
+        with gzip.open(file_descriptor, "rt", encoding="utf8") as zipfile:
             frame_annots_list = types.load_dataclass(
                 zipfile, List[types.FrameAnnotation]
             )
@@ -541,8 +567,9 @@ class Co3dDataset(torch.utils.data.Dataset):
 
     def _load_sequences(self):
         print(f"Loading Co3D sequences from {self.sequence_annotations_file}.")
+        file_descriptor = PetrelByteStreamProxy(self.sequence_annotations_file)
         with gzip.open(
-            self.sequence_annotations_file, "rt", encoding="utf8"
+            file_descriptor, "rt", encoding="utf8"
         ) as zipfile:
             seq_annots = types.load_dataclass(zipfile, List[types.SequenceAnnotation])
         if not seq_annots:
@@ -553,8 +580,8 @@ class Co3dDataset(torch.utils.data.Dataset):
         print(f"Loading Co3D subset lists from {self.subset_lists_file}.")
         if not self.subset_lists_file:
             return
-
-        with open(self.subset_lists_file, "r") as f:
+        file_descriptor = PetrelTextProxy(self.subset_lists_file)
+        with file_descriptor as f:
             subset_to_seq_frame = json.load(f)
 
         frame_path_to_subset = {
@@ -710,7 +737,8 @@ def _seq_name_to_seed(seq_name):
 
 
 def _load_image(path):
-    with Image.open(path) as pil_im:
+    file_descriptor = PetrelByteStreamProxy(path)
+    with Image.open(file_descriptor) as pil_im:
         im = np.array(pil_im.convert("RGB"))
     im = im.transpose((2, 0, 1))
     im = im.astype(np.float32) / 255.0
@@ -718,7 +746,8 @@ def _load_image(path):
 
 
 def _load_16big_png_depth(depth_png):
-    with Image.open(depth_png) as depth_pil:
+    file_descriptor = PetrelByteStreamProxy(depth_png)
+    with Image.open(file_descriptor) as depth_pil:
         # the image is stored with 16-bit depth but PIL reads it as I (32 bit).
         # we cast it to uint16, then reinterpret as float16, then cast to float32
         depth = (
@@ -730,7 +759,8 @@ def _load_16big_png_depth(depth_png):
 
 
 def _load_1bit_png_mask(file: str):
-    with Image.open(file) as pil_im:
+    file_descriptor = PetrelByteStreamProxy(file)
+    with Image.open(file_descriptor) as pil_im:
         mask = (np.array(pil_im.convert("L")) > 0.0).astype(np.float32)
     return mask
 
@@ -752,7 +782,8 @@ def _load_depth(path, scale_adjustment):
 
 
 def _load_mask(path):
-    with Image.open(path) as pil_im:
+    file_descriptor = PetrelByteStreamProxy(path)
+    with Image.open(file_descriptor) as pil_im:
         mask = np.array(pil_im)
     mask = mask.astype(np.float32) / 255.0
     return mask[None]  # fake feature channel
@@ -832,8 +863,11 @@ def _safe_as_tensor(data, dtype):
 # since sequences tend to co-occur within bathes, this is useful.
 @functools.lru_cache(maxsize=256)
 def _load_pointcloud(pcl_path, max_points=0):
-    with open(pcl_path, "rb") as f:
-        plydata = PlyData.read(f)
+    f = PetrelByteStreamProxy(pcl_path)
+    plydata = PlyData.read(f)
+    # with open(pcl_path, "rb") as f:
+    #     plydata = PlyData.read(f)
+    logging.error("plydata len={}".format(len(plydata)))
 
     pcl_data = torch.stack(
         [

@@ -18,7 +18,7 @@ logging:
 
 dataset:
   type: co3d
-  data_dir: data/co3d
+  data_dir: s3://juxiaoliang/dataset/CO3D
   data_extra_dir: data/co3d_extra_data
   category: car
   instance:

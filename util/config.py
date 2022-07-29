@@ -28,7 +28,7 @@ def construct_config(default_config, override_config):
     assert cfg.config.exp_name, "Please specify experiment name"
     print("Experiment name:", cfg.config.exp_name, "\n")
     if not exp_dir.exists():
-        exp_dir.mkdir()
+        exp_dir.mkdir(parents=True)
         os.chmod(exp_dir, 0o777)
 
     global _original_cwd

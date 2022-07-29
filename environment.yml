@@ -1,4 +1,4 @@
-name: snes
+name: nerf
 channels:
   - pytorch
   - conda-forge
